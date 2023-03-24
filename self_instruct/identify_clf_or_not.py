@@ -65,6 +65,7 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
 
+    # load machine-generated instructions with the size of num_instructions
     with open(os.path.join(args.batch_dir, "machine_generated_instructions.jsonl")) as fin:
         lines = fin.readlines()
         if args.num_instructions is not None:
@@ -72,9 +73,10 @@ if __name__ == '__main__':
 
     output_path = os.path.join(args.batch_dir, f"is_clf_or_not_{args.engine}_{args.template}.jsonl")
     existing_requests = {}
+    # load existing requests in the output file
     if os.path.exists(output_path):
         with open(output_path) as fin:
-            for line in tqdm.tqdm(fin):
+            for line in tqdm.tqdm(fin): # create a progress bar based on the number of lines in the file
                 try:
                     data = json.loads(line)
                     existing_requests[data["instruction"]] = data
@@ -82,13 +84,15 @@ if __name__ == '__main__':
                     pass
         print(f"Loaded {len(existing_requests)} existing requests")
 
-    progress_bar = tqdm.tqdm(total=len(lines))
+    progress_bar = tqdm.tqdm(total=len(lines))  # create a progress bar based on the number of lines in the file
     with open(output_path, "w") as fout:
+        # for each batch of requests
         for batch_idx in range(0, len(lines), args.request_batch_size):
-            batch = [json.loads(line) for line in lines[batch_idx: batch_idx + args.request_batch_size]]
-            if all(d["instruction"] in existing_requests for d in batch):
+            batch = [json.loads(line) for line in lines[batch_idx: batch_idx + args.request_batch_size]] # load the batch of request objects
+            if all(d["instruction"] in existing_requests for d in batch):  # check if all the requests in the batch have been made before
                 for d in batch:
                     data = existing_requests[d["instruction"]]
+                    # store all data into an ordered dictionary to ensure the order of the keys
                     data = OrderedDict(
                         (k, data[k]) for k in \
                             ["instruction", "is_classification"]
@@ -97,12 +101,14 @@ if __name__ == '__main__':
             else:
                 # prefix = compose_prompt_prefix(human_written_tasks, batch[0]["instruction"], 8, 2)
                 prefix = templates[args.template]
+                # create a prompt for each instruction in the batch
                 prompts = [prefix + " " + d["instruction"].strip() + "\n" + "Is it classification?" for d in batch]
+                # call the GPT-3 API to make the requests to check if the instruction is a classification task
                 results = make_gpt3_requests(
                     engine=args.engine,
                     prompts=prompts,
-                    max_tokens=3,
-                    temperature=0,
+                    max_tokens=3,   # we force the model to generate only 3 tokens which means only 1 word yes/no
+                    temperature=0,  # we force the model to generate without randomness
                     top_p=0,
                     frequency_penalty=0,
                     presence_penalty=0,

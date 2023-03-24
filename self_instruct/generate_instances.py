@@ -84,6 +84,7 @@ if __name__ == '__main__':
         lines = fin.readlines()
         if args.num_instructions is not None:
             lines = lines[:args.num_instructions]
+        # collect all tasks from the machine-generated instructions by replacing the key "metadata" with "instruction_metadata"
         tasks = []
         for line in lines:
             data = json.loads(line)
@@ -92,6 +93,7 @@ if __name__ == '__main__':
                 del data["metadata"]
             tasks.append(data)
 
+    # split tasks into classification and generation tasks
     task_clf_types = {}
     with open(os.path.join(args.batch_dir, "is_clf_or_not_davinci_template_1.jsonl")) as fin:
         for line in fin:
@@ -104,6 +106,7 @@ if __name__ == '__main__':
     if args.generation_tasks_only:
         tasks = [task for task in tasks if not task_clf_types[task["instruction"]]]
 
+    # filter out tasks that already have instances
     output_path = os.path.join(args.batch_dir, args.output_file)
     existing_requests = {}
     if os.path.exists(output_path):
@@ -116,11 +119,13 @@ if __name__ == '__main__':
                     pass
         print(f"Loaded {len(existing_requests)} existing requests")
 
-    progress_bar = tqdm.tqdm(total=len(tasks))
+    progress_bar = tqdm.tqdm(total=len(tasks))  # progress bar
     with open(output_path, "w") as fout:
         for batch_idx in range(0, len(tasks), args.request_batch_size):
+            # create a batch of tasks
             batch = tasks[batch_idx: batch_idx + args.request_batch_size]
             if all(d["instruction"] in existing_requests for d in batch):
+                # if all tasks in the batch have already been generated, directly write them to the output file
                 for d in batch:
                     data = existing_requests[d["instruction"]]
                     data = OrderedDict(
@@ -130,6 +135,7 @@ if __name__ == '__main__':
                         )
                     fout.write(json.dumps(data, ensure_ascii=False) + "\n")
             else:
+                # prepare the prompts by adding the fixed prefix to each instruction
                 prompts = []
                 for task in batch:
                     if task_clf_types[task["instruction"]]:
@@ -138,6 +144,7 @@ if __name__ == '__main__':
                     else:
                         prompt = input_first_template_for_gen + " " + task["instruction"].strip() + "\n"
                         prompts.append(prompt)
+                # using the OpenAI API to generate the raw instances with the instruction, possible inputs, and possible outputs or labels
                 results = make_gpt3_requests(
                     engine=args.engine,
                     prompts=prompts,

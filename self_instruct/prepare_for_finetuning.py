@@ -50,7 +50,7 @@ def parse_args():
     )
     return parser.parse_args()
 
-
+# encode the raw instance into a format that can be used for finetuning
 def encode_instance(instruction, input, output, random_template=True):
     encoding_templates_w_input = [
         ("{instruction}\nInput: {input}\nOutput:", " {output}<|endoftext|>"),
@@ -91,7 +91,7 @@ def encode_instance(instruction, input, output, random_template=True):
     }
     return data
 
-
+# rephrase the input and output to make it more readable
 def parse_input_output(response_text):
     if re.findall(r"Output\s*\d*\s*:", response_text):
         inst_input = re.split(r"Output\s*\d*\s*:", response_text)[0].strip()
@@ -106,7 +106,7 @@ def parse_input_output(response_text):
     inst_input = re.sub(r"^Input\s*\d*\s*:", "", inst_input).strip()
     return inst_input, inst_output
 
-
+# filter out the instances that are duplicates
 def filter_duplicate_instances(instances):
     # if the instances have same non-empty input, but different output, we will not use such instances
     same_input_diff_output = False
@@ -124,6 +124,7 @@ def filter_duplicate_instances(instances):
     instances = list(set(instances))
     return instances
 
+# filter out the instances that are invalid
 def filter_invalid_instances(instances):
     filtered_instances = []
     for instance in instances:
@@ -215,7 +216,7 @@ if __name__ == "__main__":
         instruction = task["instruction"]
         task["is_classification"] = task_clf_types[instruction]
 
-        # get the instances
+        # rephrase the instances for both classification and generation tasks
         if task["is_classification"]:
             task_instances = parse_instances_for_classification_task(task["raw_instances"], instruction, task["instance_metadata"])
         else:

@@ -130,8 +130,11 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+    # load the human-written seed instructions
     seed_tasks = [json.loads(l) for l in open(args.seed_tasks_path, "r")]
     if args.use_clf_seed_tasks_only:
+        # if specified, we will only use the classification seed tasks to prompt new instructions. 
+        # This will lead to more classification instructions.
         seed_tasks = [t for t in seed_tasks if t["is_classification"]]
     seed_instructions = [t["instruction"] for t in seed_tasks]
     print(f"Loaded {len(seed_instructions)} human-written seed instructions")
@@ -152,7 +155,7 @@ if __name__ == "__main__":
     scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=False)
     
     # now let's generate new instructions!
-    progress_bar = tqdm.tqdm(total=args.num_instructions_to_generate)
+    progress_bar = tqdm.tqdm(total=args.num_instructions_to_generate)   # progress bar
     if machine_instructions:
         progress_bar.update(len(machine_instructions))
 
@@ -168,8 +171,10 @@ if __name__ == "__main__":
                 # sample human instructions from the pool
                 prompt_instructions += random.sample(seed_instructions, args.num_prompt_instructions - len(prompt_instructions))
                 random.shuffle(prompt_instructions)
+                # encode multiple prompt instructions into a single string
                 prompt = encode_prompt(prompt_instructions, classification=args.use_clf_seed_tasks_only)
                 batch_inputs.append(prompt)
+            # send the requests to GPT-3 which actually calls the OpenAI API with the given engine
             results = make_gpt3_requests(
                 engine=args.engine,
                 prompts=batch_inputs,
@@ -187,23 +192,27 @@ if __name__ == "__main__":
             )
             instructions = []
             all_metadata = []
+            # post-process the responses
             for result in results:
                 new_instructions = post_process_gpt3_response(result["response"])
                 instructions += new_instructions
                 all_metadata += [result] * len(new_instructions)
-
+            # filter out the instructions that are too similar to the seed instructions
             for inst, metadata in zip(instructions, all_metadata):
+                # create a Pool of workers to compute the Rouge scores in parallel
                 with Pool(4) as p:
                     rouge_scores = p.map(partial(scorer.score, inst), seed_instructions + machine_instructions)
                 rouge_scores = [score["rougeL"].fmeasure for score in rouge_scores]
-                # rouge_scores = [scorer.score(inst, e_inst)["rougeL"].fmeasure for e_inst in human_instructions + machine_instructions]
+                # if the new instruction is too similar to the seed instructions, we will discard it
                 if max(rouge_scores) > 0.7:
                     continue
                 all_instructions = seed_instructions + machine_instructions
+                # get top 10 most similar instructions
                 most_similar_instructions = {
                         all_instructions[i] : rouge_scores[i] for i in np.argsort(rouge_scores)[-10:][::-1]
                     }
                 machine_instructions.append(inst)
+                # write the new instruction to the output file
                 fout.write(json.dumps({
                     "instruction": inst,
                     "most_similar": most_similar_instructions,
